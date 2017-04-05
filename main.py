@@ -9,7 +9,7 @@ matplotlib.use('TkAgg')
 from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg, NavigationToolbar2TkAgg
 
 from Tkinter import *
-from math import log, ceil
+from math import log, ceil, sqrt
 from ctypes import *
 from numpy.ctypeslib import ndpointer
 import numpy 
@@ -44,6 +44,7 @@ root.title('FFT')
 dens_entry_content = StringVar()
 step_entry_content = StringVar()
 sector_entry_content = StringVar()
+trendEnabled = IntVar()
 
 sectorSize = 0
 tfSectSize = 0
@@ -54,11 +55,11 @@ def dispersion(a):
   sqAv = 0L
   av = 0L
   for i in a:
-    sqAv += i**2
+    sqAv += i*i
     av += i
   sqAv /= len(a)
   av /= len(a)
-  return (sqAv - av**2)**0.5
+  return sqrt(sqAv - av*av)
 
 def plotGraphY(valArray, xl, yl):
   plotGraphXY(valArray, xl, yl, 1)
@@ -138,11 +139,50 @@ def onSelectionChange(listbox):
   for i in range(inputArrSize):
     arr[i] = inputArr[i]
   lib.amplitude.restype = ndpointer(dtype = c_double, shape = (tfSectSize,))
-  curAmlitude = lib.amplitude(arr, sectorSize, pos)[1:]
+  curAmlitude = lib.amplitude(arr, sectorSize, pos, bool(trendEnabled.get()))[1:]
   sectorInfo['text'] = sectorInfoStr.format(dispersion(inputArr[pos:pos+sectorSize]), dispersion(curAmlitude))
- 
+
+def generalInfo():
+  global inputArr, sectorSize, tfSectSize, stepSize, inputArrSize, botbar
+  inArr = (c_double * inputArrSize)(0)
+  for i in range(inputArrSize):
+    inArr[i] = inputArr[i]
+  lib.dispGraph.restype = ndpointer(dtype = c_double, shape = (tfSectSize * 2,))
+  arr = lib.dispGraph(inArr, inputArrSize, sectorSize, stepSize, bool(trendEnabled.get()))
+  f = matplotlib.figure.Figure(figsize = (5, 5), dpi = 100)
+  a = f.add_subplot(111)
+  xArray = []
+  for i in range(tfSectSize - 1):
+    xArray.append(1.0/timeInMeas/sectorSize * (i + 1))
+  #average amplitude
+  a.plot(xArray, arr[tfSectSize + 1 :], 'b-')
+  #dispersion
+  a.plot(xArray, arr[1 : tfSectSize], 'r-')
+  a.set_xlabel('frequency, hz')
+  a.set_ylabel('amplitude')
+  for widget in botbar.winfo_children():
+    widget.destroy()
+  canvas = FigureCanvasTkAgg(f, botbar)
+  canvas.show()
+  canvas.get_tk_widget().pack(side = TOP, fill = BOTH, expand = True)
+  toolbar = NavigationToolbar2TkAgg(canvas, botbar)
+  toolbar.update()
+  canvas._tkcanvas.pack(side = TOP, fill = BOTH, expand = True)
+
+def plotInputArr():
+  global inputArr, sectorSize, pos, trendEnabled
+  if bool(trendEnabled.get()):
+    plotGraphXY(
+      [inputArr[i] * abs((i - chooseGraph.curselection()[0] * stepSize + sectorSize / 2) % sectorSize - sectorSize / 2)
+      for i in range(chooseGraph.curselection()[0] * stepSize, chooseGraph.curselection()[0] * stepSize + sectorSize)]
+      , 'seconds', '', timeInMeas)
+  else:
+    plotGraphXY( inputArr[chooseGraph.curselection()[0] * stepSize : chooseGraph.curselection()[0] * stepSize + sectorSize]
+      , 'seconds', '', timeInMeas)
 
 #INTERFACE
+
+#top
 
 topbar = Frame(root, bg = bg, padx = 10, pady = 5)
 topbar.pack(side = TOP, fill = X)
@@ -165,7 +205,10 @@ sector_label.pack(side = LEFT, padx = 3)
 sector_entry = Entry(topbar, bg = '#fff', fg = fg, width = 9, textvariable = sector_entry_content)
 sector_entry.pack(side = LEFT, padx = 3)
 
-openFile_btn=Button(topbar, bg = '#fff', activebackground = '#58f', fg = fg, activeforeground = '#fff', text = 'открыть файл',
+trend_cbox = Checkbutton(topbar, bg = '#fff', fg = fg, variable = trendEnabled, text = 'Включить тренд', onvalue = 1, offvalue = 0)
+trend_cbox.pack(side = LEFT, padx = 3)
+
+openFile_btn = Button(topbar, bg = '#fff', activebackground = '#58f', fg = fg, activeforeground = '#fff', text = 'открыть файл',
   bd = 0, command = openFileBrowser)
 openFile_btn.pack(side = LEFT, padx = 3)
 
@@ -175,6 +218,11 @@ fourier_btn = Button(topbar, bg = '#fff', activebackground = '#58f', fg = fg, ac
     float(dens_entry_content.get().replace(' ', ''))))
 fourier_btn.pack(side = LEFT, padx = 10)
 
+generalInfo_btn = Button(topbar, bg = '#fff', activebackground = '#58f', fg = fg, activeforeground = '#fff',
+  text = 'Дисперсия', bd = 0, command = generalInfo)
+generalInfo_btn.pack(side = LEFT, padx = 10)
+
+#middle
 
 midbar = Frame(root, bg = bg, padx = 10, pady = 5)
 
@@ -187,9 +235,7 @@ plot_amplitude_graph_btn = Button(midbar, bg = '#fff', activebackground = '#58f'
 plot_amplitude_graph_btn.pack(side = TOP, padx = 5)
 
 plot_input_graph_btn = Button(midbar, bg = '#fff', activebackground = '#58f', fg = fg, activeforeground = '#fff',
-  text = 'Нарисовать график входных значений', bd = 0,
-  command = lambda:plotGraphXY(inputArr[chooseGraph.curselection()[0] * stepSize:chooseGraph.curselection()[0] * stepSize +
-    sectorSize], 'seconds', '', timeInMeas))
+  text = 'Нарисовать график входных значений', bd = 0, command = plotInputArr)
 plot_input_graph_btn.pack(side = TOP, padx = 5)
 
 distribution_btn = Button(midbar, bg = '#fff', activebackground = '#58f', fg = fg, activeforeground = '#fff',
@@ -199,7 +245,9 @@ distribution_btn.pack(side = TOP)
 sectorInfo = Label(midbar, bg = bg, fg = fg, font = 5)
 sectorInfo.pack(side = BOTTOM, fill = X)
 
-botbar = Frame(root, bg = bg, padx = 10, pady = 5)
+#bottom
+
+botbar = Frame(root, bg = bg)
 botbar.pack(side = TOP, fill = X)
 
 fileInfo = Label(root, bg = bg, fg = fg, font=5)

@@ -49,6 +49,12 @@ complex<double> * fft(complex<double> * d, int len)
     return out;
 }
 
+double * trend(double * d, int len){
+    int halflen = len/2;
+    for (int i = 0; i < len; i++) d[i] = d[i] * abs((i + halflen) % len - halflen) / halflen;
+    return d;
+}
+
 extern "C" int * test(int len){
     int * a = new int[len];
     for(int i = 0; i < len; i++){
@@ -96,12 +102,13 @@ extern "C" int * readf(char * path, double sInQ)
     return out;
 }
 
-extern "C" double * transform(double * in, int sectorLength, int pos)
+extern "C" double * transform(double * in, int sectorLength, int pos, bool enableTrend)
 {
     double * inCut = new double[sectorLength];
     for(int i = 0; i < sectorLength; i++){
         inCut[i] = in[i+pos];
     }
+    if(enableTrend) inCut = trend(inCut, sectorLength);
     int outLength = (int)pow(2, ceil(log2(sectorLength)));
     inCut = to2deg(inCut, sectorLength);
     complex<double> * inCompl = new complex<double>[outLength];
@@ -120,13 +127,52 @@ extern "C" double * transform(double * in, int sectorLength, int pos)
     return out;
 }
 
-extern "C" double * amplitude(double * in, int sectorLength, int pos)
+extern "C" double dispersion(double * in, int len)
 {
-    double * outCompl = transform(in, sectorLength, pos);
+    double sqAv = 0;
+    double av = 0;
+    for(int i = 0; i < len; i++){
+        sqAv += in[i] * in[i];
+        av += in[i];
+    }
+    sqAv /= len;
+    av /= len;
+    return sqrt(sqAv - av*av);
+}
+
+extern "C" double * amplitude(double * in, int sectorLength, int pos, bool enableTrend)
+{
+    double * outCompl = transform(in, sectorLength, pos, enableTrend);
     sectorLength = (int)pow(2, ceil(log2(sectorLength)));
     double * out  = new double [sectorLength];
-    for(int i = 0; i < sectorLength; i++){
-        out[i] = hypot(outCompl[i*2],outCompl[i*2+1])/sectorLength*2;
+    for(int i = 0; i < sectorLength; i++) out[i] = hypot(outCompl[i * 2], outCompl[i * 2 + 1]) / sectorLength * 2;
+    return out;
+}
+
+extern "C" double * dispGraph(double * in, int len, int sectorLength, int step, bool enableTrend)
+{
+    int sectorNum = (len - sectorLength) / step;
+    int outSectLen = (int)pow(2, ceil(log2(sectorLength)));
+    double ** ampl = new double *[sectorNum];
+    for(int i = 0; i < sectorNum; i++) ampl[i] = amplitude(in, sectorLength, i * step, enableTrend);
+    double * avAmpl = new double[outSectLen];
+    for(int i = 0; i < outSectLen; i++){
+        avAmpl[i] = 0;
+        for(int j = 0; j < sectorNum; j++){
+            avAmpl[i] += ampl[j][i];
+        }
+        avAmpl[i] /= sectorNum;
     }
+    double * amplV = new double[sectorNum];
+    double * disp = new double[outSectLen];
+    for(int i = 0; i < outSectLen; i++){
+        for(int j = 0; j < sectorNum; j++) amplV[j] = ampl[j][i];
+        disp[i] = dispersion(amplV, sectorNum);
+    }
+    double * out = new double[outSectLen * 2];
+    for(int i = 0; i < outSectLen; i++){
+        out[i] = avAmpl[i] == avAmpl[i] ? avAmpl[i] : 0; //if NaN then 0
+        out[i + outSectLen] = disp[i] == disp[i] ? disp[i] : 0;
+    } 
     return out;
 }
