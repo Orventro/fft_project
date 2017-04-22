@@ -13,4 +13,6 @@ extern "C"{
     double * transform (double * in, int sectorLength, int pos, bool enableTrend);
     double * amplitude (double * in, int sectorLength, int pos, bool enableTrend);
     double * dispGraph (double * in, int len, int sectorLength, int step, bool enableTrend);
+    //void     saveActive(char * path);
+    //void     saveArray (char * path, double * xArr, double * yArr);
 }

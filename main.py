@@ -37,6 +37,12 @@ sectorInfoStr='Дисперсия входных значений : {} ; Дис�
 
 curAmlitude = []
 
+xArr = []
+yArr = []
+
+avAmpl = []
+disp = []
+
 root = Tk()
 root.geometry(str(root.winfo_screenwidth())+'x'+str(root.winfo_screenheight())+'+0+0')
 root.title('FFT')
@@ -65,13 +71,14 @@ def plotGraphY(valArray, xl, yl):
   plotGraphXY(valArray, xl, yl, 1)
 
 def plotGraphXY(valArray, xl, yl, xs):
-  global botbar
+  global botbar, xArr, yArr
   f = matplotlib.figure.Figure(figsize = (5, 5), dpi = 100)
   a = f.add_subplot(111)
-  xArray = []
+  yArr = valArray
+  xArr = []
   for i in range(len(valArray)):
-    xArray.append(xs * (i + 1))
-  a.plot(xArray, valArray, 'b-')
+    xArr.append(xs * (i + 1))
+  a.plot(xArr, valArray, 'b-')
   a.set_xlabel(xl)
   a.set_ylabel(yl)
   for widget in botbar.winfo_children():
@@ -143,7 +150,7 @@ def onSelectionChange(listbox):
   sectorInfo['text'] = sectorInfoStr.format(dispersion(inputArr[pos:pos+sectorSize]), dispersion(curAmlitude))
 
 def generalInfo():
-  global inputArr, sectorSize, tfSectSize, stepSize, inputArrSize, botbar
+  global inputArr, sectorSize, tfSectSize, stepSize, inputArrSize, botbar, avAmpl, disp
   inArr = (c_double * inputArrSize)(0)
   for i in range(inputArrSize):
     inArr[i] = inputArr[i]
@@ -151,13 +158,15 @@ def generalInfo():
   arr = lib.dispGraph(inArr, inputArrSize, sectorSize, stepSize, bool(trendEnabled.get()))
   f = matplotlib.figure.Figure(figsize = (5, 5), dpi = 100)
   a = f.add_subplot(111)
-  xArray = []
+  xArr = []
   for i in range(tfSectSize - 1):
-    xArray.append(1.0/timeInMeas/sectorSize * (i + 1))
+    xArr.append(1.0/timeInMeas/sectorSize * (i + 1))
   #average amplitude
-  a.plot(xArray, arr[tfSectSize + 1 :], 'b-')
+  avAmpl = arr[1 : tfSectSize]
+  a.plot(xArr, avAmpl, 'r-')
   #dispersion
-  a.plot(xArray, arr[1 : tfSectSize], 'r-')
+  disp = arr[tfSectSize + 1 :]
+  a.plot(xArr, disp, 'b-')
   a.set_xlabel('frequency, hz')
   a.set_ylabel('amplitude')
   for widget in botbar.winfo_children():
@@ -180,11 +189,50 @@ def plotInputArr():
     plotGraphXY( inputArr[chooseGraph.curselection()[0] * stepSize : chooseGraph.curselection()[0] * stepSize + sectorSize]
       , 'seconds', '', timeInMeas)
 
+def saveActive():
+  global filePath, pos, sectorSize, trendEnabled, timeInMeas
+  from tkFileDialog import asksaveasfile, asksaveasfilename
+  from time import strftime
+  f = asksaveasfile(mode = 'w', defaultextension = '.txt')
+  #f = asksaveasfilename(defaultextension = '.txt')
+  if f is None:
+    return
+  text2save  = strftime("%d/%m/%Y  %H:%M:%S") + '  -  Результаты преобразования Фурье файла : ' + str(filePath) + '\n'
+  text2save += 'измерений в сек. : ' + str(1 / timeInMeas) + ' , измерения с ' + str(pos) + ' по ' + str(sectorSize) + '\n'
+  text2save += 'тренд включен : ' + ('да' if trendEnabled else 'нет') + '\n\n'
+  text2save += 'частота        амплитуда\n'
+  for i in range(len(yArr)):
+    text2save += str(xArr[i]) + ' ' * (15 - len(str(xArr[i]))) + str(yArr[i]) + '\n'
+  f.write(text2save)
+  f.close()
+
+def saveGenInfo():
+  global avAmpl, disp, filePath, timeInMeas, sectorSize, stepSize
+  from tkFileDialog import asksaveasfile, asksaveasfilename
+  from time import strftime
+  f = asksaveasfile(mode = 'w', defaultextension = '.txt')
+  #f = asksaveasfilename(defaultextension = '.txt')
+  if f is None:
+    return
+  text2save  = strftime("%d/%m/%Y  %H:%M:%S") + '  -  Результаты преобразования Фурье файла : \n' + str(filePath) + '\n'
+  text2save += 'измерений в сек. : '+str(1/timeInMeas)+' отступ : '+str(stepSize)+' длительнсть измерения : '+str(sectorSize) + '\n'
+  text2save += 'тренд включен : ' + ('да' if trendEnabled else 'нет') + '\n\n'
+  text2save += 'СРЕДНЯЯ АМПЛИТУДА\n\n'
+  text2save += 'частота        амплитуда\n'
+  generalInfo()
+  for i in range(len(avAmpl)):
+    text2save += str(1.0/timeInMeas/sectorSize*(i+1)) + ' ' * (15 - len(str(1.0/timeInMeas/sectorSize*(i+1)))) + str(avAmpl[i])+'\n'
+  text2save += '\nДИСПЕРСИЯ\n\n'
+  for i in range(len(disp)):
+    text2save += str(1.0/timeInMeas/sectorSize*(i+1)) + ' ' * (15 - len(str(1.0/timeInMeas/sectorSize*(i+1)))) + str(disp[i]) + '\n'
+  f.write(text2save)
+  f.close()
+
 #INTERFACE
 
 #top
 
-topbar = Frame(root, bg = bg, padx = 10, pady = 5)
+topbar = Frame(root, bg = bg, padx = 3, pady = 5)
 topbar.pack(side = TOP, fill = X)
 
 dens_label = Label(topbar, text = 'квант времени :', bg = bg, fg= fg)
@@ -197,30 +245,34 @@ step_label = Label(topbar, text = 'смещение :', bg = bg, fg= fg)
 step_label.pack(side = LEFT)
 
 step_entry = Entry(topbar, bg = '#fff', fg = fg, width = 9, textvariable = step_entry_content)
-step_entry.pack(side = LEFT, padx = 3)
+step_entry.pack(side = LEFT, padx = 2)
 
 sector_label = Label(topbar, text = 'длительность измерения :', bg = bg, fg = fg)
-sector_label.pack(side = LEFT, padx = 3)
+sector_label.pack(side = LEFT, padx = 2)
 
 sector_entry = Entry(topbar, bg = '#fff', fg = fg, width = 9, textvariable = sector_entry_content)
-sector_entry.pack(side = LEFT, padx = 3)
+sector_entry.pack(side = LEFT, padx = 2)
 
 trend_cbox = Checkbutton(topbar, bg = '#fff', fg = fg, variable = trendEnabled, text = 'Включить тренд', onvalue = 1, offvalue = 0)
-trend_cbox.pack(side = LEFT, padx = 3)
+trend_cbox.pack(side = LEFT, padx = 2)
 
 openFile_btn = Button(topbar, bg = '#fff', activebackground = '#58f', fg = fg, activeforeground = '#fff', text = 'открыть файл',
   bd = 0, command = openFileBrowser)
-openFile_btn.pack(side = LEFT, padx = 3)
+openFile_btn.pack(side = LEFT, padx = 2)
 
 fourier_btn = Button(topbar, bg = '#fff', activebackground = '#58f', fg = fg, activeforeground = '#fff',
   text = 'Преобразование Фурье', bd = 0,
   command = lambda : readF(int(sector_entry_content.get().replace(' ', '')), int(step_entry_content.get().replace(' ', '')), 
     float(dens_entry_content.get().replace(' ', ''))))
-fourier_btn.pack(side = LEFT, padx = 10)
+fourier_btn.pack(side = LEFT, padx = 2)
 
 generalInfo_btn = Button(topbar, bg = '#fff', activebackground = '#58f', fg = fg, activeforeground = '#fff',
   text = 'Дисперсия', bd = 0, command = generalInfo)
-generalInfo_btn.pack(side = LEFT, padx = 10)
+generalInfo_btn.pack(side = LEFT, padx = 2)
+
+saveGenInfo_btn = Button(topbar, bg = '#fff', activebackground = '#58f', fg = fg, activeforeground = '#fff',
+  text = 'Сохранить дисперсию', bd = 0, command = saveGenInfo)
+saveGenInfo_btn.pack(side = LEFT)
 
 #middle
 
@@ -241,6 +293,10 @@ plot_input_graph_btn.pack(side = TOP, padx = 5)
 distribution_btn = Button(midbar, bg = '#fff', activebackground = '#58f', fg = fg, activeforeground = '#fff',
   text = 'Распределение значений', bd = 0, command = lambda : plothist(amplitude(False), '', ''))
 distribution_btn.pack(side = TOP)
+
+saveActive_btn = Button(midbar, bg = '#fff', activebackground = '#58f', fg = fg, activeforeground = '#fff',
+  text = 'Сохранить преобразование', bd = 0, command = saveActive)
+saveActive_btn.pack(side = TOP)
 
 sectorInfo = Label(midbar, bg = bg, fg = fg, font = 5)
 sectorInfo.pack(side = BOTTOM, fill = X)

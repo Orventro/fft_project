@@ -7,12 +7,14 @@
 
 using namespace std;
 
+double d001 = 0;
+
 double * linInterp(double *d1, int l1, int l2)
 {
     double *d2 = new double[l2];
     double x;
     for(int i = 0; i < l2-1; i++){
-        x = i*1.0*l1/l2;
+        x = ((double)i)*l1/l2;
         d2[i] = d1[(int)x] + (x - (int)x) * (d1[(int)x+1] - d1[(int)x]);
     }
     d2[l2-1] = d1[l1-1];
@@ -23,9 +25,8 @@ double * to2deg(double * d, int len)
 {
     double curdeg = log2(len);
     if((int)curdeg == ceil(curdeg)) return d;
-    else return linInterp(d, len, (int)pow(2,ceil(curdeg)));
+    return linInterp(d, len, (int)pow(2,ceil(curdeg)));
 }
-
 
 complex<double> * fft(complex<double> * d, int len)
 {
